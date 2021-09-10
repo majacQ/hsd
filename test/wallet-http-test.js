@@ -19,6 +19,7 @@ const {Resource} = require('../lib/dns/resource');
 const Address = require('../lib/primitives/address');
 const Output = require('../lib/primitives/output');
 const HD = require('../lib/hd/hd');
+const Mnemonic = require('../lib/hd/mnemonic');
 const rules = require('../lib/covenants/rules');
 const {types} = rules;
 const secp256k1 = require('bcrypto/lib/secp256k1');
@@ -51,6 +52,8 @@ const wallet2 = wclient.wallet('secondary');
 
 let name, cbAddress;
 const accountTwo = 'foobar';
+const ownedNames = [];
+const allNames = [];
 
 const {
   treeInterval,
@@ -84,6 +87,31 @@ describe('Wallet HTTP', function() {
 
   afterEach(async () => {
     await node.mempool.reset();
+  });
+
+  it('should create wallet with spanish mnemonic', async () => {
+    await wclient.createWallet(
+      'cartera1',
+      {language: 'spanish'}
+    );
+    const master = await wclient.getMaster('cartera1');
+    const phrase = master.mnemonic.phrase;
+    for (const word of phrase.split(' ')) {
+      const language = Mnemonic.getLanguage(word);
+      assert.strictEqual(language, 'spanish');
+      // Comprobar la cordura:
+      assert.notStrictEqual(language, 'english');
+    }
+
+    // Verificar
+    await wclient.createWallet(
+      'cartera2',
+      {mnemonic: phrase}
+    );
+    assert.deepStrictEqual(
+      await wclient.getAccount('cartera1', 'default'),
+      await wclient.getAccount('cartera2', 'default')
+    );
   });
 
   it('should get key by address from watch-only', async () => {
@@ -411,6 +439,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     const json = await wallet.createBid({
       name: name,
       bid: 1000,
@@ -489,6 +520,8 @@ describe('Wallet HTTP', function() {
   it('should get name info', async () => {
     const names = await wallet.getNames();
 
+    assert.strictEqual(allNames.length, names.length);
+
     assert(names.length > 0);
     const [ns] = names;
 
@@ -521,6 +554,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 0,
@@ -534,6 +570,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(treeInterval + 1, cbAddress);
+
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
 
     const fn = async () => await wallet.createBid({
       name: name,
@@ -550,6 +589,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(treeInterval + 1, cbAddress);
+
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
 
     const tx1 = await wallet.createBid({
       name: name,
@@ -608,6 +650,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     const tx1 = await wallet.createBid({
       name: name,
       bid: 1000,
@@ -657,6 +702,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -683,6 +731,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(treeInterval + 1, cbAddress);
+
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
 
     for (let i = 0; i < 3; i++) {
       await wallet.createBid({
@@ -717,6 +768,10 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+    allNames.push(name2);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -740,6 +795,10 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
+    ownedNames.push(name2);
 
     {
       const reveals = await wallet.getReveals();
@@ -770,6 +829,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     const b1 = await wallet.createBid({
       name: name,
       bid: 1000,
@@ -799,6 +861,8 @@ describe('Wallet HTTP', function() {
     state.reveals.push(r2);
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // wallet did not win this auction so name is not pushed to ownedNames[]
 
     {
       const reveals = await wallet.getRevealsByName(name, {own: true});
@@ -856,6 +920,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 2, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     const balanceBeforeBid = await wallet.getBalance();
     assert.equal(balanceBeforeBid.lockedConfirmed - lockConfirmedBeforeTest, 0);
     assert.equal(
@@ -895,6 +962,9 @@ describe('Wallet HTTP', function() {
     await nclient.broadcast(auctionTxs.reveal.hex);
     await mineBlocks(1, cbAddress);
 
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
+
     walletAuction = await wallet.getAuctionByName(name);
     const revealFromWallet = walletAuction.reveals.find(
       b => b.prevout.hash === auctionTxs.reveal.hash
@@ -918,6 +988,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(treeInterval + 1, cbAddress);
+
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
 
     // wallet2 wins the auction, wallet can submit redeem
     await wallet.createBid({
@@ -944,6 +1017,8 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(revealPeriod + 1, cbAddress);
 
+    // wallet did not win this auction so name is not pushed to ownedNames[]
+
     // wallet2 is the winner, therefore cannot redeem
     const fn = async () => (await wallet2.createRedeem({
       name: name
@@ -966,6 +1041,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -979,6 +1057,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
 
     {
       const json = await wallet.createUpdate({
@@ -1050,6 +1131,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -1063,6 +1147,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
 
     await wallet.createUpdate({
       name: name,
@@ -1095,6 +1182,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -1108,6 +1198,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
 
     await wallet.createUpdate({
       name: name,
@@ -1141,6 +1234,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -1154,6 +1250,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
 
     await wallet.createUpdate({
       name: name,
@@ -1169,7 +1268,7 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
-    const {receiveAddress} = await wallet.getAccount(accountTwo);
+    const {receiveAddress} = await wallet2.getAccount('default');
 
     await wallet.createTransfer({
       name,
@@ -1187,6 +1286,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(1, cbAddress);
 
+    // Confirmed FINALIZE means this wallet is not the owner anymore!
+    ownedNames.splice(ownedNames.indexOf(name), 1);
+
     const ns = await nclient.execute('getnameinfo', [name]);
     const coin = await nclient.getCoin(ns.info.owner.hash, ns.info.owner.index);
 
@@ -1199,6 +1301,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(treeInterval + 1, cbAddress);
+
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
 
     await wallet.createBid({
       name: name,
@@ -1213,6 +1318,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
 
     await wallet.createUpdate({
       name: name,
@@ -1261,6 +1369,9 @@ describe('Wallet HTTP', function() {
 
     await mineBlocks(treeInterval + 1, cbAddress);
 
+    // Confirmed OPEN adds name to wallet's namemap
+    allNames.push(name);
+
     await wallet.createBid({
       name: name,
       bid: 1000,
@@ -1274,6 +1385,9 @@ describe('Wallet HTTP', function() {
     });
 
     await mineBlocks(revealPeriod + 1, cbAddress);
+
+    // Confirmed REVEAL with highest bid makes wallet the owner
+    ownedNames.push(name);
 
     await wallet.createUpdate({
       name: name,
@@ -1295,6 +1409,9 @@ describe('Wallet HTTP', function() {
     assert.equal(final.length, 1);
 
     await mineBlocks(1, cbAddress);
+
+    // Confirmed REVOKE means no one owns this name anymore
+    ownedNames.splice(ownedNames.indexOf(name), 1);
 
     const ns = await nclient.execute('getnameinfo', [name]);
     assert.equal(ns.info.name, name);
@@ -1397,6 +1514,28 @@ describe('Wallet HTTP', function() {
       output => output.covenant.type === types.REGISTER
     );
     assert.equal(registers.length, 1);
+  });
+
+  it('should get all wallet names', async () => {
+    const names = await wallet.getNames();
+
+    assert.equal(allNames.length, names.length);
+
+    for (const {name} of names) {
+      assert(allNames.includes(name));
+    }
+  });
+
+  it('should only get wallet-owned names', async () => {
+    // TODO: convert to using hs-client method
+    // when wallet.getNames() allows `options`
+    const names = await wallet.client.get(`/wallet/${wallet.id}/name`, {own: true});
+
+    assert.equal(names.length, ownedNames.length);
+
+    for (const {name} of names) {
+      assert(ownedNames.includes(name));
+    }
   });
 });
 

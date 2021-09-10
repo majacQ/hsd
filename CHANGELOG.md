@@ -2,7 +2,20 @@
 
 ## unreleased
 
-### Wallet changes
+**When upgrading to this version of hsd you must pass
+`--chain-migrate=2 --wallet-migrate=1` when you run it for the first time.**
+
+### Database changes
+  - Updated database versions and layout.
+  - Separated migrations from WalletDB and ChainDB: [lib/migrations/README.md](./lib/migrations/README.md)
+  - Blockstore update: The way that block data is stored has changed for greater
+  performance, efficiency, reliability and portability. To upgrade to the new
+  disk layout it's necessary to move block data from LevelDB
+  (e.g. `~/.hsd/chain`) to a new file based block storage
+  (e.g. `~./.hsd/blocks`). That will happen automatically with the migration
+  flags.
+
+### Wallet API changes
 
 - New RPC methods:
   - `signmessagewithname`: Like `signmessage` but uses a name instead of an address. The owner's address will be used to sign the message.
@@ -16,6 +29,9 @@ of that coin is added to the JSON response. This is useful for wallet recovery s
 when users need to call `rpc importnonce` to repair unknown blinds. The complete usage is now
 `rpc getbids name (own) (unrevealed)` so for example a wallet-recovering user would execute
 `rpc getbids null true true`.
+
+- Wallet RPC `getnames` (and HTTP endpoint `/wallet/:id/name`) now accept a
+boolean parameter "own" (default: `false`) that filters out names the wallet does not own.
 
 ## v2.4.0
 

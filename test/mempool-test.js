@@ -9,6 +9,7 @@ const MempoolEntry = require('../lib/mempool/mempoolentry');
 const Mempool = require('../lib/mempool/mempool');
 const WorkerPool = require('../lib/workers/workerpool');
 const Chain = require('../lib/blockchain/chain');
+const BlockStore = require('../lib/blockstore/level');
 const ChainEntry = require('../lib/blockchain/chainentry');
 const MTX = require('../lib/primitives/mtx');
 const Claim = require('../lib/primitives/claim');
@@ -40,9 +41,15 @@ const workers = new WorkerPool({
   enabled: true
 });
 
+const blocks = new BlockStore({
+  memory: true,
+  network: 'regtest'
+});
+
 const chain = new Chain({
   network: 'regtest',
   memory: true,
+  blocks,
   workers
 });
 
@@ -115,6 +122,7 @@ describe('Mempool', function() {
 
   it('should open mempool', async () => {
     await workers.open();
+    await blocks.open();
     await chain.open();
     await mempool.open();
   });
@@ -404,6 +412,7 @@ describe('Mempool', function() {
   it('should destroy mempool', async () => {
     await mempool.close();
     await chain.close();
+    await blocks.close();
     await workers.close();
   });
 
@@ -413,8 +422,14 @@ describe('Mempool', function() {
       enabled: false
     });
 
+    const blocks = new BlockStore({
+      memory: true,
+      network: 'regtest'
+    });
+
     const chain = new Chain({
       memory: true,
+      blocks,
       workers,
       network: 'regtest'
     });
@@ -431,6 +446,7 @@ describe('Mempool', function() {
 
     before(async () => {
       await mempool.open();
+      await blocks.open();
       await chain.open();
       await workers.open();
     });
@@ -438,6 +454,7 @@ describe('Mempool', function() {
     after(async () => {
       await workers.close();
       await chain.close();
+      await blocks.close();
       await mempool.close();
     });
 
@@ -480,8 +497,7 @@ describe('Mempool', function() {
         view.addTX(tx, -1);
       }
 
-      const now = Math.floor(Date.now() / 1000);
-      const time = chain.tip.time <= now ? chain.tip.time + 1 : now;
+      const time = chain.tip.time + 1;
 
       const block = new Block();
       block.txs = txs;
@@ -999,16 +1015,20 @@ describe('Mempool', function() {
       // Create a fake claim - just to get the correct timestamps
       let claim = await chaincoins.fakeClaim('cloudflare');
 
-      // Fast-forward the next block's timestamp to allow claim.
+      // Fast-forward the network time to allow claim.
+      // If the Cloudflare RRSIG timestamps are more than 2 hours
+      // into the future, the required minimum block timestamp
+      // would be out of consensus range. So we "set mocktime" first.
       const data = claim.getData(mempool.network);
-      const [block1] = await getMockBlock(chain);
-      block1.time = data.inception + 10000;
-      try {
-        ownership.ignore = true;
-        await chain.add(block1, VERIFY_BODY);
-      } finally {
-        ownership.ignore = false;
+
+      if (data.inception > mempool.network.now()) {
+        const delta = mempool.network.now() - data.inception;
+        mempool.network.time.offset = -delta;
       }
+
+      const [block1] = await getMockBlock(chain);
+      block1.time = data.inception + 1;
+      await chain.add(block1, VERIFY_BODY);
 
       // Add a few more blocks
       let block2;
@@ -1117,6 +1137,7 @@ describe('Mempool', function() {
 
     const chain = new Chain({
       memory: true,
+      blocks,
       workers,
       network: 'regtest'
     });
@@ -1130,6 +1151,7 @@ describe('Mempool', function() {
     });
 
     before(async () => {
+      await blocks.open();
       await mempool.open();
       await chain.open();
       await workers.open();
@@ -1139,6 +1161,7 @@ describe('Mempool', function() {
       await workers.close();
       await chain.close();
       await mempool.close();
+      await blocks.close();
     });
 
     // Number of coins available in
